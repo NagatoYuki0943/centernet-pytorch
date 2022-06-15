@@ -1,3 +1,7 @@
+"""
+要在centernet.py中设置model_path,classes_path,confidence,nms_iou等,和训练时参数相同
+"""
+
 #-----------------------------------------------------------------------#
 #   predict.py将单张图片预测、摄像头检测、FPS测试和目录遍历检测等功能
 #   整合到了一个py文件中，通过指定mode进行模式的修改。
@@ -45,7 +49,7 @@ if __name__ == "__main__":
     #----------------------------------------------------------------------------------------------------------#
     #   test_interval       用于指定测量fps的时候，图片检测的次数。理论上test_interval越大，fps越准确。
     #   fps_image_path      用于指定测试的fps图片
-    #   
+    #
     #   test_interval和fps_image_path仅在mode='fps'有效
     #----------------------------------------------------------------------------------------------------------#
     test_interval   = 100
@@ -92,11 +96,11 @@ if __name__ == "__main__":
                 r_image.show()
 
     elif mode == "video":
-        capture = cv2.VideoCapture(video_path)
+        capture=cv2.VideoCapture(video_path)
         if video_save_path!="":
-            fourcc  = cv2.VideoWriter_fourcc(*'XVID')
-            size    = (int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)), int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-            out     = cv2.VideoWriter(video_save_path, fourcc, video_fps, size)
+            fourcc = cv2.VideoWriter_fourcc(*'XVID')
+            size = (int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)), int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+            out = cv2.VideoWriter(video_save_path, fourcc, video_fps, size)
 
         ref, frame = capture.read()
         if not ref:
@@ -137,7 +141,7 @@ if __name__ == "__main__":
             print("Save processed video to the path :" + video_save_path)
             out.release()
         cv2.destroyAllWindows()
-        
+
     elif mode == "fps":
         img = Image.open(fps_image_path)
         tact_time = centernet.get_FPS(img, test_interval)

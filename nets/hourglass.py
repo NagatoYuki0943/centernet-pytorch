@@ -34,7 +34,7 @@ class residual(nn.Module):
 
         self.conv2 = nn.Conv2d(out_dim, out_dim, (3, 3), padding=(1, 1), bias=False)
         self.bn2   = nn.BatchNorm2d(out_dim)
-        
+
         self.skip  = nn.Sequential(
             nn.Conv2d(inp_dim, out_dim, (1, 1), stride=(stride, stride), bias=False),
             nn.BatchNorm2d(out_dim)
@@ -86,7 +86,7 @@ class kp_module(nn.Module):
         # 将输入进来的特征层进行两次残差卷积，便于和后面的层进行融合
         self.up1  = make_layer(
             3, curr_dim, curr_dim, curr_mod, **kwargs
-        )  
+        )
 
         # 进行下采样
         self.low1 = make_hg_layer(
@@ -97,7 +97,7 @@ class kp_module(nn.Module):
         if self.n > 1 :
             self.low2 = kp_module(
                 n - 1, dims[1:], modules[1:], **kwargs
-            ) 
+            )
         else:
             self.low2 = make_layer(
                 3, next_dim, next_dim, next_mod, **kwargs

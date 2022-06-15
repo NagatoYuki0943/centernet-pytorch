@@ -1,26 +1,37 @@
 import numpy as np
 import torch
 from torch import nn
+from torch.nn import functional as F
 from torchvision.ops import nms
 
-
+#-------------------------------------------------------------------------#
+#   利用maxpool来完成非极大抑制,centernet特有的非极大抑制
+#-------------------------------------------------------------------------#
 def pool_nms(heat, kernel = 3):
     pad = (kernel - 1) // 2
+    hmax = F.max_pool2d(heat, (kernel, kernel), stride=1, padding=pad)
+    keep = (hmax == heat).float()   # 返回True/False,转换为1 0
+    return heat * keep              # 相乘获得要的数据 也可以 heat[keep]
 
-    hmax = nn.functional.max_pool2d(heat, (kernel, kernel), stride=1, padding=pad)
-    keep = (hmax == heat).float()
-    return heat * keep
-
+#-------------------------------------------------------------------------#
+#   解码
+#-------------------------------------------------------------------------#
 def decode_bbox(pred_hms, pred_whs, pred_offsets, confidence, cuda):
+    """
+    pred_hms:       种类预测
+    pred_whs:       宽高偏移
+    pred_offsets:   中心偏移
+    confidence:     置信度
+    """
     #-------------------------------------------------------------------------#
     #   当利用512x512x3图片进行coco数据集预测的时候
     #   h = w = 128 num_classes = 80
-    #   Hot map热力图 -> b, 80, 128, 128, 
+    #   Hot map热力图 -> b, 80, 128, 128,
     #   进行热力图的非极大抑制，利用3x3的卷积对热力图进行最大值筛选
     #   找出一定区域内，得分最大的特征点。
     #-------------------------------------------------------------------------#
     pred_hms = pool_nms(pred_hms)
-    
+
     b, c, output_h, output_w = pred_hms.shape
     detects = []
     #-------------------------------------------------------------------------#
@@ -28,19 +39,22 @@ def decode_bbox(pred_hms, pred_whs, pred_offsets, confidence, cuda):
     #-------------------------------------------------------------------------#
     for batch in range(b):
         #-------------------------------------------------------------------------#
-        #   heat_map        128*128, num_classes    热力图
-        #   pred_wh         128*128, 2              特征点的预测宽高
-        #                                           在预测过程的前处理以及后处理视频中讲的有点小问题，不是调整参数，就是宽高
-        #   pred_offset     128*128, 2              特征点的xy轴偏移情况
+        #   heat_map        [128*128, num_classes]    热力图
+        #   pred_wh         [128*128, 2          ]    特征点的预测宽高
+        #                                             在预测过程的前处理以及后处理视频中讲的有点小问题，不是调整参数，就是宽高
+        #   pred_offset     [128*128, 2          ]    特征点的xy轴偏移情况
         #-------------------------------------------------------------------------#
-        heat_map    = pred_hms[batch].permute(1, 2, 0).view([-1, c])
+        heat_map    = pred_hms[batch].permute(1, 2, 0).view([-1, c])        # 将通道放到最后,并且转换为二维的 c代表分类
         pred_wh     = pred_whs[batch].permute(1, 2, 0).view([-1, 2])
         pred_offset = pred_offsets[batch].permute(1, 2, 0).view([-1, 2])
 
+        #-------------------------------------------------------------------------#
+        # 根据输入图片宽高构建特征点x,y坐标
+        #-------------------------------------------------------------------------#
         yv, xv      = torch.meshgrid(torch.arange(0, output_h), torch.arange(0, output_w))
         #-------------------------------------------------------------------------#
-        #   xv              128*128,    特征点的x轴坐标
-        #   yv              128*128,    特征点的y轴坐标
+        #   xv              [128*128,]    特征点的x轴坐标
+        #   yv              [128*128,]    特征点的y轴坐标
         #-------------------------------------------------------------------------#
         xv, yv      = xv.flatten().float(), yv.flatten().float()
         if cuda:
@@ -52,32 +66,39 @@ def decode_bbox(pred_hms, pred_whs, pred_offsets, confidence, cuda):
         #   class_pred      128*128,    特征点的种类
         #-------------------------------------------------------------------------#
         class_conf, class_pred  = torch.max(heat_map, dim = -1)
-        mask                    = class_conf > confidence
+        mask                    = class_conf > confidence       # 返回 True / False  [128*128,]
 
         #-----------------------------------------#
         #   取出得分筛选后对应的结果
         #-----------------------------------------#
-        pred_wh_mask        = pred_wh[mask]
-        pred_offset_mask    = pred_offset[mask]
+        pred_wh_mask        = pred_wh[mask]       # [128*128, 2]
+        pred_offset_mask    = pred_offset[mask]   # [128*128, 2]
+        # 没有超过置信度的,忽略
         if len(pred_wh_mask) == 0:
             detects.append([])
-            continue     
+            continue
 
         #----------------------------------------#
         #   计算调整后预测框的中心
+        #   原始坐标+偏移值就是预测中心
+        #   增加最后一个维度
         #----------------------------------------#
         xv_mask = torch.unsqueeze(xv[mask] + pred_offset_mask[..., 0], -1)
         yv_mask = torch.unsqueeze(yv[mask] + pred_offset_mask[..., 1], -1)
         #----------------------------------------#
         #   计算预测框的宽高
+        #   预测宽高除以2得到一半宽高
         #----------------------------------------#
         half_w, half_h = pred_wh_mask[..., 0:1] / 2, pred_wh_mask[..., 1:2] / 2
         #----------------------------------------#
-        #   获得预测框的左上角和右下角
+        #   获得预测框的左上角和右下角坐标
+        #   x1,y1,x2,y2
         #----------------------------------------#
         bboxes = torch.cat([xv_mask - half_w, yv_mask - half_h, xv_mask + half_w, yv_mask + half_h], dim=1)
-        bboxes[:, [0, 2]] /= output_w
+        bboxes[:, [0, 2]] /= output_w   # 归一化
         bboxes[:, [1, 3]] /= output_h
+
+        # 拼接 [x1, y1, x2, y2, 特征点的置信度, 特征点的种类]
         detect = torch.cat([bboxes, torch.unsqueeze(class_conf[mask],-1), torch.unsqueeze(class_pred[mask],-1).float()], dim=-1)
         detects.append(detect)
 
@@ -103,10 +124,10 @@ def bbox_iou(box1, box2, x1y1x2y2=True):
 
     inter_area = torch.clamp(inter_rect_x2 - inter_rect_x1, min=0) * \
                  torch.clamp(inter_rect_y2 - inter_rect_y1, min=0)
-                 
+
     b1_area = (b1_x2 - b1_x1) * (b1_y2 - b1_y1)
     b2_area = (b2_x2 - b2_x1) * (b2_y2 - b2_y1)
-    
+
     iou = inter_area / torch.clamp(b1_area + b2_area - inter_area, min = 1e-6)
 
     return iou
@@ -138,9 +159,15 @@ def centernet_correct_boxes(box_xy, box_wh, input_shape, image_shape, letterbox_
     boxes *= np.concatenate([image_shape, image_shape], axis=-1)
     return boxes
 
+"""
+后处理:额外的非极大抑制,还有进行结果形式调整(删除灰条)
+"""
 def postprocess(prediction, need_nms, image_shape, input_shape, letterbox_image, nms_thres=0.4):
+    """
+    prediction: [x1, y1, x2, y2, 特征点的置信度, 特征点的种类]
+    """
     output = [None for _ in range(len(prediction))]
-    
+
     #----------------------------------------------------------#
     #   预测只用一张图片，只会进行一次
     #----------------------------------------------------------#
@@ -160,6 +187,7 @@ def postprocess(prediction, need_nms, image_shape, input_shape, letterbox_image,
         for c in unique_labels:
             #------------------------------------------#
             #   获得某一类得分筛选后全部的预测结果
+            #   只要对应的分类 detections[:, -1] == c
             #------------------------------------------#
             detections_class = detections[detections[:, -1] == c]
             if need_nms:
@@ -167,8 +195,8 @@ def postprocess(prediction, need_nms, image_shape, input_shape, letterbox_image,
                 #   使用官方自带的非极大抑制会速度更快一些！
                 #------------------------------------------#
                 keep = nms(
-                    detections_class[:, :4],
-                    detections_class[:, 4],
+                    detections_class[:, :4],    # 坐标
+                    detections_class[:, 4],     # 先验框置信度 * 种类置信度 结果是1维数据
                     nms_thres
                 )
                 max_detections = detections_class[keep]
@@ -198,9 +226,10 @@ def postprocess(prediction, need_nms, image_shape, input_shape, letterbox_image,
                 # max_detections = torch.cat(max_detections).data
             else:
                 max_detections  = detections_class
-            
+
             output[i] = max_detections if output[i] is None else torch.cat((output[i], max_detections))
 
+        # 删除灰条
         if output[i] is not None:
             output[i]           = output[i].cpu().numpy()
             box_xy, box_wh      = (output[i][:, 0:2] + output[i][:, 2:4])/2, output[i][:, 2:4] - output[i][:, 0:2]

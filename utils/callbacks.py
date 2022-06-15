@@ -24,7 +24,7 @@ class LossHistory():
         self.log_dir    = log_dir
         self.losses     = []
         self.val_loss   = []
-        
+
         os.makedirs(self.log_dir)
         self.writer     = SummaryWriter(self.log_dir)
         # try:
@@ -62,7 +62,7 @@ class LossHistory():
                 num = 5
             else:
                 num = 15
-            
+
             plt.plot(iters, scipy.signal.savgol_filter(self.losses, num, 3), 'green', linestyle = '--', linewidth = 2, label='smooth train loss')
             plt.plot(iters, scipy.signal.savgol_filter(self.val_loss, num, 3), '#8B4513', linestyle = '--', linewidth = 2, label='smooth val loss')
         except:
@@ -82,7 +82,7 @@ class EvalCallback():
     def __init__(self, net, backbone, input_shape, class_names, num_classes, val_lines, log_dir, cuda, \
             map_out_path=".temp_map_out", max_boxes=100, confidence=0.05, nms=True, nms_iou=0.5, letterbox_image=True, MINOVERLAP=0.5, eval_flag=True, period=1):
         super(EvalCallback, self).__init__()
-        
+
         self.net                = net
         self.backbone           = backbone
         self.input_shape        = input_shape
@@ -100,7 +100,7 @@ class EvalCallback():
         self.MINOVERLAP         = MINOVERLAP
         self.eval_flag          = eval_flag
         self.period             = period
-        
+
         self.maps       = [0]
         self.epoches    = [0]
         if self.eval_flag:
@@ -109,7 +109,7 @@ class EvalCallback():
                 f.write("\n")
 
     def get_map_txt(self, image_id, image, class_names, map_out_path):
-        f = open(os.path.join(map_out_path, "detection-results/"+image_id+".txt"),"w") 
+        f = open(os.path.join(map_out_path, "detection-results/"+image_id+".txt"),"w")
         #---------------------------------------------------#
         #   计算输入图片的高和宽
         #---------------------------------------------------#
@@ -153,12 +153,12 @@ class EvalCallback():
             #   实际测试中，hourglass为主干网络时有无额外的nms相差不大，resnet相差较大。
             #-------------------------------------------------------#
             results = postprocess(outputs, self.nms, image_shape, self.input_shape, self.letterbox_image, self.nms_iou)
-            
+
             #--------------------------------------#
             #   如果没有检测到物体，则返回原图
             #--------------------------------------#
             if results[0] is None:
-                return 
+                return
 
             top_label   = np.array(results[0][:, 5], dtype = 'int32')
             top_conf    = results[0][:, 4]
@@ -173,7 +173,7 @@ class EvalCallback():
             predicted_class = self.class_names[int(c)]
             box             = top_boxes[i]
             score           = str(top_conf[i])
-            
+
             top, left, bottom, right = box
 
             if predicted_class not in class_names:
@@ -182,7 +182,7 @@ class EvalCallback():
             f.write("%s %s %s %s %s %s\n" % (predicted_class, score[:6], str(int(left)), str(int(top)), str(int(right)),str(int(bottom))))
 
         f.close()
-        return 
+        return
 
     def on_epoch_end(self, epoch, model_eval):
         if epoch % self.period == 0 and self.eval_flag:
@@ -209,7 +209,7 @@ class EvalCallback():
                 #   获得预测txt
                 #------------------------------#
                 self.get_map_txt(image_id, image, self.class_names, self.map_out_path)
-                
+
                 #------------------------------#
                 #   获得真实框txt
                 #------------------------------#
@@ -218,7 +218,7 @@ class EvalCallback():
                         left, top, right, bottom, obj = box
                         obj_name = self.class_names[obj]
                         new_f.write("%s %s %s %s %s\n" % (obj_name, left, top, right, bottom))
-                        
+
             print("Calculate Map.")
             try:
                 temp_map = get_coco_map(class_names = self.class_names, path = self.map_out_path)[1]
@@ -230,7 +230,7 @@ class EvalCallback():
             with open(os.path.join(self.log_dir, "epoch_map.txt"), 'a') as f:
                 f.write(str(temp_map))
                 f.write("\n")
-            
+
             plt.figure()
             plt.plot(self.epoches, self.maps, 'red', linewidth = 2, label='train map')
 

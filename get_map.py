@@ -1,3 +1,9 @@
+"""
+要在centernet.py中设置model_path,classes_path,confidence,nms_iou等,和predict时参数相同
+classes_path和预测时使用的相同
+VOCdevkit_path是数据集文件夹
+"""
+
 import os
 import xml.etree.ElementTree as ET
 

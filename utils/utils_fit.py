@@ -30,12 +30,12 @@ def fit_one_epoch(model_train, model, loss_history, eval_callback, optimizer, ep
         #----------------------#
         optimizer.zero_grad()
         if not fp16:
-            if backbone=="resnet50":
+            if backbone=="resnet50" or "efficientnet" in backbone:   # 添加 efficientnet
                 hm, wh, offset  = model_train(batch_images)
                 c_loss          = focal_loss(hm, batch_hms)
                 wh_loss         = 0.1 * reg_l1_loss(wh, batch_whs, batch_reg_masks)
                 off_loss        = reg_l1_loss(offset, batch_regs, batch_reg_masks)
-                
+
                 loss            = c_loss + wh_loss + off_loss
 
                 total_loss      += loss.item()
@@ -54,7 +54,7 @@ def fit_one_epoch(model_train, model, loss_history, eval_callback, optimizer, ep
                     off_loss    = reg_l1_loss(offset, batch_regs, batch_reg_masks)
 
                     loss        += c_loss + wh_loss + off_loss
-                    
+
                     c_loss_all  += c_loss
                     r_loss_all  += wh_loss + off_loss
                     index       += 1
@@ -66,12 +66,12 @@ def fit_one_epoch(model_train, model, loss_history, eval_callback, optimizer, ep
         else:
             from torch.cuda.amp import autocast
             with autocast():
-                if backbone=="resnet50":
+                if backbone=="resnet50" or "efficientnet" in backbone:   # 添加 efficientnet
                     hm, wh, offset  = model_train(batch_images)
                     c_loss          = focal_loss(hm, batch_hms)
                     wh_loss         = 0.1 * reg_l1_loss(wh, batch_whs, batch_reg_masks)
                     off_loss        = reg_l1_loss(offset, batch_regs, batch_reg_masks)
-                    
+
                     loss            = c_loss + wh_loss + off_loss
 
                     total_loss      += loss.item()
@@ -90,7 +90,7 @@ def fit_one_epoch(model_train, model, loss_history, eval_callback, optimizer, ep
                         off_loss    = reg_l1_loss(offset, batch_regs, batch_reg_masks)
 
                         loss        += c_loss + wh_loss + off_loss
-                        
+
                         c_loss_all  += c_loss
                         r_loss_all  += wh_loss + off_loss
                         index       += 1
@@ -104,9 +104,9 @@ def fit_one_epoch(model_train, model, loss_history, eval_callback, optimizer, ep
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
-        
+
         if local_rank == 0:
-            pbar.set_postfix(**{'total_r_loss'  : total_r_loss / (iteration + 1), 
+            pbar.set_postfix(**{'total_r_loss'  : total_r_loss / (iteration + 1),
                                 'total_c_loss'  : total_c_loss / (iteration + 1),
                                 'lr'            : get_lr(optimizer)})
             pbar.update(1)
@@ -121,13 +121,13 @@ def fit_one_epoch(model_train, model, loss_history, eval_callback, optimizer, ep
     for iteration, batch in enumerate(gen_val):
         if iteration >= epoch_step_val:
             break
-            
+
         with torch.no_grad():
             if cuda:
                 batch = [ann.cuda(local_rank) for ann in batch]
             batch_images, batch_hms, batch_whs, batch_regs, batch_reg_masks = batch
 
-            if backbone=="resnet50":
+            if backbone=="resnet50" or "efficientnet" in backbone:   # 添加 efficientnet
                 hm, wh, offset  = model_train(batch_images)
                 c_loss          = focal_loss(hm, batch_hms)
                 wh_loss         = 0.1 * reg_l1_loss(wh, batch_whs, batch_reg_masks)
@@ -153,7 +153,7 @@ def fit_one_epoch(model_train, model, loss_history, eval_callback, optimizer, ep
             if local_rank == 0:
                 pbar.set_postfix(**{'val_loss': val_loss / (iteration + 1)})
                 pbar.update(1)
-                
+
     if local_rank == 0:
         pbar.close()
         print('Finish Validation')
@@ -161,15 +161,15 @@ def fit_one_epoch(model_train, model, loss_history, eval_callback, optimizer, ep
         eval_callback.on_epoch_end(epoch + 1, model_train)
         print('Epoch:'+ str(epoch+1) + '/' + str(Epoch))
         print('Total Loss: %.3f || Val Loss: %.3f ' % (total_loss / epoch_step, val_loss / epoch_step_val))
-        
+
         #-----------------------------------------------#
         #   保存权值
         #-----------------------------------------------#
         if (epoch + 1) % save_period == 0 or epoch + 1 == Epoch:
             torch.save(model.state_dict(), os.path.join(save_dir, 'ep%03d-loss%.3f-val_loss%.3f.pth' % (epoch + 1, total_loss / epoch_step, val_loss / epoch_step_val)))
-            
+
         if len(loss_history.val_loss) <= 1 or (val_loss / epoch_step_val) <= min(loss_history.val_loss):
             print('Save best model to best_epoch_weights.pth')
             torch.save(model.state_dict(), os.path.join(save_dir, "best_epoch_weights.pth"))
-            
+
         torch.save(model.state_dict(), os.path.join(save_dir, "last_epoch_weights.pth"))

@@ -7,13 +7,13 @@ from PIL import Image
 #---------------------------------------------------------#
 def cvtColor(image):
     if len(np.shape(image)) == 3 and np.shape(image)[2] == 3:
-        return image 
+        return image
     else:
         image = image.convert('RGB')
-        return image 
+        return image
 
 #---------------------------------------------------#
-#   对输入图像进行resize
+#   对输入图像进行resize,加上灰条
 #---------------------------------------------------#
 def resize_image(image, size, letterbox_image):
     iw, ih  = image.size
@@ -39,6 +39,9 @@ def get_classes(classes_path):
     class_names = [c.strip() for c in class_names]
     return class_names, len(class_names)
 
+#---------------------------------------------------#
+#   获得学习率
+#---------------------------------------------------#
 def get_lr(optimizer):
     for param_group in optimizer.param_groups:
         return param_group['lr']
@@ -61,15 +64,15 @@ def show_config(**kwargs):
 def download_weights(backbone, model_dir="./model_data"):
     import os
     from torch.hub import load_state_dict_from_url
-    
+
     if backbone == "hourglass":
         raise ValueError("HourglassNet has no pretrained model")
-    
+
     download_urls = {
         'resnet50'      : 'https://s3.amazonaws.com/pytorch/models/resnet50-19c8e357.pth',
     }
     url = download_urls[backbone]
-    
+
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
     load_state_dict_from_url(url, model_dir)

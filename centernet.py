@@ -1,3 +1,7 @@
+"""
+model_path ,classes_path, input_shape, confidence, nms_iou
+"""
+
 import colorsys
 import os
 import time
@@ -7,7 +11,7 @@ import torch
 import torch.backends.cudnn as cudnn
 from PIL import ImageDraw, ImageFont
 
-from nets.centernet import CenterNet_HourglassNet, CenterNet_Resnet50
+from nets.centernet import CenterNet_HourglassNet, CenterNet_Resnet50, CenterNet_Efficientnet
 from utils.utils import (cvtColor, get_classes, preprocess_input, resize_image,
                          show_config)
 from utils.utils_bbox import decode_bbox, postprocess
@@ -30,13 +34,13 @@ class CenterNet(object):
         #   验证集损失较低不代表mAP较高，仅代表该权值在验证集上泛化性能较好。
         #   如果出现shape不匹配，同时要注意训练时的model_path和classes_path参数的修改
         #--------------------------------------------------------------------------#
-        "model_path"        : 'model_data/centernet_resnet50_voc.pth',
+        "model_path"        : 'logs/efficientnet/ep100-loss2.988-val_loss2.891.pth',
         "classes_path"      : 'model_data/voc_classes.txt',
         #--------------------------------------------------------------------------#
         #   用于选择所使用的模型的主干
-        #   resnet50, hourglass
+        #   resnet50,hourglass,efficientnet_b0,efficientnet_b1,efficientnet_b2,efficientnet_b3,efficientnet_b4,efficientnet_b5,efficientnet_b6,efficientnet_b7
         #--------------------------------------------------------------------------#
-        "backbone"          : 'resnet50',
+        "backbone"          : 'efficientnet_b0',
         #--------------------------------------------------------------------------#
         #   输入图片的大小，设置成32的倍数
         #--------------------------------------------------------------------------#
@@ -46,7 +50,7 @@ class CenterNet(object):
         #--------------------------------------------------------------------------#
         "confidence"        : 0.3,
         #---------------------------------------------------------------------#
-        #   非极大抑制所用到的nms_iou大小
+        #   非极大抑制所用到的nms_iou大小,越小代表越严格
         #---------------------------------------------------------------------#
         "nms_iou"           : 0.3,
         #--------------------------------------------------------------------------#
@@ -84,7 +88,6 @@ class CenterNet(object):
         #   计算总的类的数量
         #---------------------------------------------------#
         self.class_names, self.num_classes  = get_classes(self.classes_path)
-
         #---------------------------------------------------#
         #   画框设置不同的颜色
         #---------------------------------------------------#
@@ -93,7 +96,7 @@ class CenterNet(object):
         self.colors = list(map(lambda x: (int(x[0] * 255), int(x[1] * 255), int(x[2] * 255)), self.colors))
 
         self.generate()
-        
+
         show_config(**self._defaults)
 
     #---------------------------------------------------#
@@ -103,11 +106,13 @@ class CenterNet(object):
         #-------------------------------#
         #   载入模型与权值
         #-------------------------------#
-        assert self.backbone in ['resnet50', 'hourglass']
+        assert self.backbone in ['resnet50', 'hourglass', 'efficientnet_b0', 'efficientnet_b1', 'efficientnet_b2', 'efficientnet_b3', 'efficientnet_b4', 'efficientnet_b5', 'efficientnet_b6', 'efficientnet_b7']
         if self.backbone == "resnet50":
-            self.net = CenterNet_Resnet50(num_classes=self.num_classes, pretrained=False)
-        else:
+            self.net = CenterNet_Resnet50(self.num_classes, pretrained=False)
+        elif self.backbone == "hourglass":
             self.net = CenterNet_HourglassNet({'hm': self.num_classes, 'wh': 2, 'reg':2})
+        elif "efficientnet" in self.backbone:
+            self.net =CenterNet_Efficientnet(self.num_classes, phi=self.backbone, pretrained=False)
 
         device      = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.net.load_state_dict(torch.load(self.model_path, map_location=device))
@@ -153,10 +158,13 @@ class CenterNet(object):
                 outputs = [outputs[-1]["hm"].sigmoid(), outputs[-1]["wh"], outputs[-1]["reg"]]
             #-----------------------------------------------------------#
             #   利用预测结果进行解码
+            #   返回: [x1, y1, x2, y2, 特征点的置信度, 特征点的种类]
             #-----------------------------------------------------------#
             outputs = decode_bbox(outputs[0], outputs[1], outputs[2], self.confidence, self.cuda)
 
             #-------------------------------------------------------#
+            #   后处理:额外的非极大抑制,还有进行结果形式调整(删除灰条)
+            #
             #   对于centernet网络来讲，确立中心非常重要。
             #   对于大目标而言，会存在许多的局部信息。
             #   此时对于同一个大目标，中心点比较难以确定。
@@ -165,16 +173,16 @@ class CenterNet(object):
             #   实际测试中，hourglass为主干网络时有无额外的nms相差不大，resnet相差较大。
             #-------------------------------------------------------#
             results = postprocess(outputs, self.nms, image_shape, self.input_shape, self.letterbox_image, self.nms_iou)
-            
+
             #--------------------------------------#
             #   如果没有检测到物体，则返回原图
             #--------------------------------------#
             if results[0] is None:
                 return image
 
-            top_label   = np.array(results[0][:, 5], dtype = 'int32')
-            top_conf    = results[0][:, 4]
-            top_boxes   = results[0][:, :4]
+            top_label   = np.array(results[0][:, 5], dtype = 'int32')   # 种类
+            top_conf    = results[0][:, 4]                              # 置信度
+            top_boxes   = results[0][:, :4]                             # 坐标
 
         #---------------------------------------------------------#
         #   设置字体与边框厚度
@@ -203,23 +211,25 @@ class CenterNet(object):
                 left    = max(0, np.floor(left).astype('int32'))
                 bottom  = min(image.size[1], np.floor(bottom).astype('int32'))
                 right   = min(image.size[0], np.floor(right).astype('int32'))
-                
+
                 dir_save_path = "img_crop"
                 if not os.path.exists(dir_save_path):
                     os.makedirs(dir_save_path)
                 crop_image = image.crop([left, top, right, bottom])
                 crop_image.save(os.path.join(dir_save_path, "crop_" + str(i) + ".png"), quality=95, subsampling=0)
                 print("save crop_" + str(i) + ".png to " + dir_save_path)
+
         #---------------------------------------------------------#
         #   图像绘制
         #---------------------------------------------------------#
         for i, c in list(enumerate(top_label)):
-            predicted_class = self.class_names[int(c)]
-            box             = top_boxes[i]
-            score           = top_conf[i]
+            predicted_class = self.class_names[int(c)]  # 种类
+            box             = top_boxes[i]              # 坐标
+            score           = top_conf[i]               # 置信度
 
             top, left, bottom, right = box
 
+            # 防止超出边界
             top     = max(0, np.floor(top).astype('int32'))
             left    = max(0, np.floor(left).astype('int32'))
             bottom  = min(image.size[1], np.floor(bottom).astype('int32'))
@@ -230,7 +240,7 @@ class CenterNet(object):
             label_size = draw.textsize(label, font)
             label = label.encode('utf-8')
             print(label, top, left, bottom, right)
-            
+
             if top - label_size[1] >= 0:
                 text_origin = np.array([left, top - label_size[1]])
             else:
@@ -289,7 +299,7 @@ class CenterNet(object):
             #   实际测试中，hourglass为主干网络时有无额外的nms相差不大，resnet相差较大。
             #-------------------------------------------------------#
             results = postprocess(outputs, self.nms, image_shape, self.input_shape, self.letterbox_image, self.nms_iou)
-            
+
         t1 = time.time()
         for _ in range(test_interval):
             with torch.no_grad():
@@ -320,7 +330,6 @@ class CenterNet(object):
     def detect_heatmap(self, image, heatmap_save_path):
         import cv2
         import matplotlib.pyplot as plt
-
         #---------------------------------------------------------#
         #   在这里将图像转换成RGB图像，防止灰度图在预测时报错。
         #   代码仅仅支持RGB图像的预测，所有其它类型的图像都会转化成RGB
@@ -346,7 +355,7 @@ class CenterNet(object):
             outputs = self.net(images)
             if self.backbone == 'hourglass':
                 outputs = [outputs[-1]["hm"].sigmoid(), outputs[-1]["wh"], outputs[-1]["reg"]]
-        
+
         plt.imshow(image, alpha=1)
         plt.axis('off')
         mask        = np.zeros((image.size[1], image.size[0]))
@@ -354,7 +363,7 @@ class CenterNet(object):
         score       = cv2.resize(score, (image.size[0], image.size[1]))
         normed_score    = (score * 255).astype('uint8')
         mask            = np.maximum(mask, normed_score)
-        
+
         plt.imshow(mask, alpha=0.5, interpolation='nearest', cmap="jet")
 
         plt.axis('off')
@@ -371,7 +380,7 @@ class CenterNet(object):
         im                  = torch.zeros(1, 3, *self.input_shape).to('cpu')  # image size(1, 3, 512, 512) BCHW
         input_layer_names   = ["images"]
         output_layer_names  = ["output"]
-        
+
         # Export the model
         print(f'Starting export with onnx {onnx.__version__}.')
         torch.onnx.export(self.net,
@@ -403,7 +412,7 @@ class CenterNet(object):
         print('Onnx model save as {}'.format(model_path))
 
     def get_map_txt(self, image_id, image, class_names, map_out_path):
-        f = open(os.path.join(map_out_path, "detection-results/"+image_id+".txt"),"w") 
+        f = open(os.path.join(map_out_path, "detection-results/"+image_id+".txt"),"w")
         #---------------------------------------------------#
         #   计算输入图片的高和宽
         #---------------------------------------------------#
