@@ -21,7 +21,7 @@ class CenterNet_Resnet50(nn.Module):
         #                -> 128, 128, 64 -> 128, 128, 2
         #                -> 128, 128, 64 -> 128, 128, 2
         #-----------------------------------------------------------------#
-        self.head = resnet50_Head(channel=64, num_classes=num_classes)
+        self.head = resnet50_Head(hidden_channels=64, num_classes=num_classes)
 
         self._init_weights()
 

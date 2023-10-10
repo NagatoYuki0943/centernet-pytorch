@@ -34,13 +34,13 @@ class CenterNet(object):
         #   验证集损失较低不代表mAP较高，仅代表该权值在验证集上泛化性能较好。
         #   如果出现shape不匹配，同时要注意训练时的model_path和classes_path参数的修改
         #--------------------------------------------------------------------------#
-        "model_path"        : 'logs/efficientnet/ep100-loss2.988-val_loss2.891.pth',
+        "model_path"        : 'model_data/centernet_resnet50_voc.pth',
         "classes_path"      : 'model_data/voc_classes.txt',
         #--------------------------------------------------------------------------#
         #   用于选择所使用的模型的主干
         #   resnet50,hourglass,efficientnet_b0,efficientnet_b1,efficientnet_b2,efficientnet_b3,efficientnet_b4,efficientnet_b5,efficientnet_b6,efficientnet_b7
         #--------------------------------------------------------------------------#
-        "backbone"          : 'efficientnet_b0',
+        "backbone"          : 'resnet50',
         #--------------------------------------------------------------------------#
         #   输入图片的大小，设置成32的倍数
         #--------------------------------------------------------------------------#
